@@ -1,0 +1,27 @@
+@AuraEnabled
+public class FetchAccount {
+public static String getAccounts(){
+List<Account> accList=new List<Account>(String recId);
+accList=[SELECT id,Name FROM Account WHERE id=:recId ];
+return accList;
+}
+}
+
+
+lwc js File
+
+import {lightningElement,wire,track} from lwc;
+import getAccounts FROM '@Salesforce/apex/FetchAccount/FetchAccount';
+recordId
+accounts,
+error,
+wired{getAccounts(recId:$recordId)
+if(data){
+this.data=accounts;
+}
+else{
+this.error=error;
+}}
+
+
+
