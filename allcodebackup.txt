@@ -1,0 +1,13 @@
+@AuraEnabled
+public class FetchAccount {
+public static String getAccounts(){
+List<Account> accList=new List<Account>(String recId);
+accList=[SELECT id,Name FROM Account WHERE id=:recId ];
+return accList;
+}
+}
+
+
+
+
+
