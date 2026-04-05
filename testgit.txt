@@ -1,0 +1,143 @@
+public class DuplicateContactTriggerHandler {
+
+    public static void preventDuplicatesOnContacts(List<Contact> conList){
+
+        // 1. Collect all emails from trigger contacts
+        Set<String> emails = new Set<String>();
+        for(Contact con : conList){
+            if(con.Email != null){
+                emails.add(con.Email.toLowerCase()); // avoid case-sensitivity issues
+            }
+        }
+
+        if(emails.isEmpty()) return;
+
+        // 2. Query existing contacts with these emails
+        Map<String, Contact> existingContactsMap = new Map<String, Contact>();
+        for(Contact c : [SELECT Id, Email FROM Contact WHERE Email IN :emails]){
+            existingContactsMap.put(c.Email.toLowerCase(), c);
+        }
+
+        // 3. Loop through trigger contacts and prevent duplicates
+        for(Contact con : conList){
+            if(con.Email != null && existingContactsMap.containsKey(con.Email.toLowerCase())){
+                con.addError('A contact with this email already exists.');
+            }
+        }
+    }
+}
+
+
+public class OpportunityTriggerHandler {
+
+    public static void updateAmountOnAccount(List<Opportunity> oppList){
+
+        // 1. Collect Account IDs
+        Set<Id> accIds = new Set<Id>();
+        for(Opportunity opp : oppList){
+            if(opp.AccountId != null){
+                accIds.add(opp.AccountId);
+            }
+        }
+
+        if(accIds.isEmpty()) return;
+
+        // 2. Query max opportunity amount per account
+        Map<Id, Decimal> maxAmount = new Map<Id, Decimal>();
+        for(AggregateResult aggRes : [
+            SELECT AccountId, MAX(Amount) maxAmount
+            FROM Opportunity
+            WHERE AccountId IN :accIds
+            GROUP BY AccountId
+        ]) {
+            Id accountId = (Id) aggRes.get('AccountId');
+            Decimal amount = (Decimal) aggRes.get('maxAmount');
+            maxAmount.put(accountId, amount);
+        }
+
+        // 3. Query Accounts to update
+        List<Account> accList = [SELECT Id, Amount FROM Account WHERE Id IN :accIds];
+
+        // 4. Update Accounts with max opportunity amount
+        for(Account acc : accList){
+            if(maxAmount.containsKey(acc.Id)){
+                acc.Amount = maxAmount.get(acc.Id);
+            }
+        }
+
+        // 5. Perform bulk update
+        if(!accList.isEmpty()){
+            update accList;
+        }
+    }
+}
+
+
+public class UpdateOpportunityHandler {
+
+    public static void updateIndustry(List<Account> accList, Map<Id, Account> oldMap) {
+
+        // 1. Collect Account IDs where Industry has changed
+        Set<Id> accIds = new Set<Id>();
+        for(Account acc : accList){
+            Account oldAcc = oldMap.get(acc.Id);
+            if(acc.Industry != oldAcc.Industry){
+                accIds.add(acc.Id);
+            }
+        }
+
+        if(accIds.isEmpty()) return; // No Accounts changed
+
+        // 2. Query Opportunities related to these Accounts
+        List<Opportunity> oppList = [
+            SELECT Id, AccountId, Industry
+            FROM Opportunity
+            WHERE AccountId IN :accIds
+        ];
+
+        // 3. Update Opportunity Industry to match Account
+        Map<Id, Account> accMap = new Map<Id, Account>(accList); // map AccountId -> Account
+        for(Opportunity opp : oppList){
+            if(accMap.containsKey(opp.AccountId)){
+                opp.Industry = accMap.get(opp.AccountId).Industry;
+            }
+        }
+
+        // 4. Bulk update Opportunities
+        if(!oppList.isEmpty()){
+            update oppList;
+        }
+    }
+}
+
+
+
+public class AccountPreventDeleteHandler {
+
+    public static void preventDeletion(List<Account> accList) {
+
+        // 1. Collect Account IDs being deleted
+        Set<Id> accIds = new Set<Id>();
+        for(Account acc : accList){
+            accIds.add(acc.Id);
+        }
+
+        if(accIds.isEmpty()) return;
+
+        // 2. Query Opportunities related to these Accounts
+        Map<Id, List<Opportunity>> accOppMap = new Map<Id, List<Opportunity>>();
+        for(Opportunity opp : [SELECT Id, AccountId FROM Opportunity WHERE AccountId IN :accIds]){
+            if(!accOppMap.containsKey(opp.AccountId)){
+                accOppMap.put(opp.AccountId, new List<Opportunity>());
+            }
+            accOppMap.get(opp.AccountId).add(opp);
+        }
+
+        // 3. Prevent deletion by adding errors
+        for(Account acc : accList){
+            if(accOppMap.containsKey(acc.Id) && !accOppMap.get(acc.Id).isEmpty()){
+                acc.addError('Cannot delete this Account because it has related Opportunities.');
+            }
+        }
+    }
+}
